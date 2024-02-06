@@ -13,6 +13,7 @@ env_logger = "*"
 # rustls used because it is difficult to properly use openssl inside openssl engine
 rusoto_core = { git = "https://github.com/rusoto/rusoto", default_features = false, features=["rustls"] }
 rusoto_kms = { git = "https://github.com/rusoto/rusoto", default_features = false, features=["rustls"] }
+tokio = { version = "1.36.0", features = ["rt"] }
 
 
 [lib]
