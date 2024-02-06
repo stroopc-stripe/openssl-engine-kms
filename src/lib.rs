@@ -7,6 +7,8 @@ use rusoto_kms::{Kms, KmsClient};
 use std::collections::HashMap;
 use std::ptr;
 use std::sync::Mutex;
+use std::future::Future;
+use std::pin::Pin;
 
 #[macro_use]
 extern crate lazy_static;
@@ -149,8 +151,12 @@ static RAND_METH: rand_meth_st = rand_meth_st {
 };
 
 lazy_static! {
-    static ref KMS_CLIENT: KmsClient = KmsClient::new(Region::EuWest1);
+    static ref KMS_CLIENT: KmsClient = KmsClient::new(Region::default());
     static ref KEYS: Mutex<HashMap<usize, String>> = Mutex::new(HashMap::new());
+}
+
+fn run_sync<T>(f: Pin<Box<dyn Future<Output=T>>>) -> T {
+    tokio::runtime::Runtime::new().unwrap().block_on(f)
 }
 
 // implementation functions
@@ -208,7 +214,7 @@ extern "C" fn rand_bytes(buf: *mut c_uchar, num: c_int) -> c_int {
         custom_key_store_id: None,
         number_of_bytes: Some(num.into()),
     };
-    let output = KMS_CLIENT.generate_random(req).sync();
+    let output = run_sync(KMS_CLIENT.generate_random(req));
     if let Err(e) = output {
         error!("generate {} random bytes failed: {}", num, e);
         return 0;
@@ -244,7 +250,7 @@ extern "C" fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize,
         signing_algorithm: alg.unwrap().to_string(),
         grant_tokens: None,
     };
-    let output = KMS_CLIENT.sign(req).sync();
+    let output = run_sync(KMS_CLIENT.sign(req));
     if let Err(e) = output {
         error!("sign err for key id {}: {}", key_id, e);
         return 0;
@@ -275,7 +281,7 @@ extern "C" fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, 
         signing_algorithm: alg.unwrap().to_string(),
         grant_tokens: None,
     };
-    let output = KMS_CLIENT.verify(req).sync();
+    let output = run_sync(KMS_CLIENT.verify(req));
     if let Err(e) = output {
         match e {
             rusoto_core::RusotoError::Unknown(x) if x.body_as_str().contains("KMSInvalidSignatureException") => {
@@ -305,7 +311,7 @@ extern "C" fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usi
         encryption_context: None,
         grant_tokens: None,
     };
-    let output = KMS_CLIENT.encrypt(req).sync();
+    let output = run_sync(KMS_CLIENT.encrypt(req));
     if let Err(e) = output {
         error!("encrypt err for key id {}: {}", key_id, e);
         return 0;
@@ -334,7 +340,7 @@ extern "C" fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usi
         encryption_context: None,
         grant_tokens: None,
     };
-    let output = KMS_CLIENT.decrypt(req).sync();
+    let output = run_sync(KMS_CLIENT.decrypt(req));
     if let Err(e) = output {
         error!("decrypt err for key id {}: {}", key_id, e);
         return 0;
@@ -374,7 +380,8 @@ extern "C" fn load_key(e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void
         key_id: key_id.to_string(),
         grant_tokens: None,
     };
-    let output = KMS_CLIENT.get_public_key(req).sync();
+    let output = run_sync(KMS_CLIENT.get_public_key(req));
+    // let output = KMS_CLIENT.get_public_key(req).sync();
     if let Err(e) = output {
         error!("load key err for key id {}: {}", key_id, e);
         return ptr::null_mut();
